@@ -1253,9 +1253,37 @@ func playerHandler(c echo.Context) error {
 		return fmt.Errorf("error flockByTenantID: %w", err)
 	}
 	defer fl.Close()
+	maxscores := []PlayerScoreRow{}
+	q := `select ps.* from player_score ps 
+    		inner join (
+    			select competition_id, player_id, tenant_id, MAX(row_num) rn 
+    			from player_score playerID
+    			where player_id = ? and tenant_id = ? 
+    			group by competition_id, player_id, tenant_id) as mx 
+    		on (
+    		    ps.player_id = mx.player_id 
+				and mx.rn = ps.row_num 
+				and mx.competition_id = ps.competition_id 
+				and mx.tenant_id = ps.tenant_id)`
+	if err := tenantDB.SelectContext(ctx, &maxscores, q, p.ID, v.tenantID); err != nil {
+		return fmt.Errorf("error select max player score: %w", err)
+	}
+	type key struct {
+		tenant_id      int64
+		player_id      string
+		competition_id string
+	}
+	mxscores := map[key]PlayerScoreRow{}
+	for _, v := range maxscores {
+		mxscores[key{
+			tenant_id:      v.TenantID,
+			player_id:      v.PlayerID,
+			competition_id: v.CompetitionID,
+		}] = v
+	}
 	pss := make([]PlayerScoreRow, 0, len(cs))
 	for _, c := range cs {
-		ps := PlayerScoreRow{}
+		/*ps := PlayerScoreRow{}
 		if err := tenantDB.GetContext(
 			ctx,
 			&ps,
@@ -1270,8 +1298,16 @@ func playerHandler(c echo.Context) error {
 				continue
 			}
 			return fmt.Errorf("error Select player_score: tenantID=%d, competitionID=%s, playerID=%s, %w", v.tenantID, c.ID, p.ID, err)
+		}*/
+		score, ok := mxscores[key{
+			tenant_id:      v.tenantID,
+			player_id:      p.ID,
+			competition_id: c.ID,
+		}]
+		if !ok {
+			continue
 		}
-		pss = append(pss, ps)
+		pss = append(pss, score)
 	}
 
 	psds := make([]PlayerScoreDetail, 0, len(pss))
