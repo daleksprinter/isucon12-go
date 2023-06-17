@@ -1254,8 +1254,18 @@ func playerHandler(c echo.Context) error {
 	}
 	defer fl.Close()
 	maxscores := []PlayerScoreRow{}
-	q := "select ps.* from player_score ps inner join (select tenant_id, player_id, competition_id, MAX(row_num) from player_score group by player_id, competition_id, tenant_id) as mx on ps.tenant_id = mx.tenant_id and ps.player_id = mx.player_id and ps.competition_id = mx.competition_id"
-	if err := tenantDB.SelectContext(ctx, &maxscores, q); err != nil {
+	q := `select ps.* from player_score ps 
+    		inner join (
+    			select competition_id, player_id, tenant_id, MAX(row_num) rn 
+    			from player_score playerID
+    			where player_id = ? and tenant_id = ? 
+    			group by competition_id, player_id, tenant_id) as mx 
+    		on (
+    		    ps.player_id = mx.player_id 
+				and mx.rn = ps.row_num 
+				and mx.competition_id = ps.competition_id 
+				and mx.tenant_id = ps.tenant_id)`
+	if err := tenantDB.SelectContext(ctx, &maxscores, q, p.ID, v.tenantID); err != nil {
 		return fmt.Errorf("error select max player score: %w", err)
 	}
 	type key struct {
