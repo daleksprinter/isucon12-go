@@ -20,4 +20,4 @@ COPY --chown=isucon:isucon ./ /home/isucon/webapp/go/
 ENV GOPATH=/home/isucon/tmp/go
 ENV GOCACHE=/home/isucon/tmp/go/.cache
 
-CMD ["go", "run", "./cmd/isuports/main.go"]
+CMD ["./isuports"]
