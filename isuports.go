@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	l "log"
 	"net/http"
 	"os"
 	"os/exec"
@@ -27,6 +28,7 @@ import (
 	"github.com/lestrrat-go/jwx/v2/jwa"
 	"github.com/lestrrat-go/jwx/v2/jwk"
 	"github.com/lestrrat-go/jwx/v2/jwt"
+	_ "net/http/pprof"
 )
 
 const (
@@ -136,6 +138,10 @@ func Run() {
 	e := echo.New()
 	e.Debug = true
 	e.Logger.SetLevel(log.DEBUG)
+
+	go func() {
+		l.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
 
 	var (
 		sqlLogger io.Closer
@@ -419,6 +425,18 @@ type PlayerScoreRow struct {
 	RowNum        int64  `db:"row_num"`
 	CreatedAt     int64  `db:"created_at"`
 	UpdatedAt     int64  `db:"updated_at"`
+}
+
+type PlayerScoreRowWithPlayer struct {
+	TenantID      int64  `db:"tenant_id"`
+	ID            string `db:"id"`
+	PlayerID      string `db:"player_id"`
+	CompetitionID string `db:"competition_id"`
+	Score         int64  `db:"score"`
+	RowNum        int64  `db:"row_num"`
+	CreatedAt     int64  `db:"created_at"`
+	UpdatedAt     int64  `db:"updated_at"`
+	DisplayName   string `db:"display_name"`
 }
 
 // 排他ロックのためのファイル名を生成する
@@ -1365,33 +1383,34 @@ func competitionRankingHandler(c echo.Context) error {
 		return fmt.Errorf("error flockByTenantID: %w", err)
 	}
 	defer fl.Close()
-	pss := []PlayerScoreRow{}
+	pss := []PlayerScoreRowWithPlayer{}
 	if err := tenantDB.SelectContext(
 		ctx,
 		&pss,
-		"SELECT * FROM player_score WHERE tenant_id = ? AND competition_id = ? ORDER BY row_num DESC",
+		"SELECT ps.*, p.display_name FROM player_score ps join player p on ps.player_id = p.id WHERE ps.tenant_id = ? AND ps.competition_id = ? ORDER BY ps.row_num DESC",
 		tenant.ID,
 		competitionID,
 	); err != nil {
 		return fmt.Errorf("error Select player_score: tenantID=%d, competitionID=%s, %w", tenant.ID, competitionID, err)
 	}
 	ranks := make([]CompetitionRank, 0, len(pss))
-	scoredPlayerSet := make(map[string]struct{}, len(pss))
+	//scoredPlayerSet := make(map[string]struct{}, len(pss))
 	for _, ps := range pss {
-		// player_scoreが同一player_id内ではrow_numの降順でソートされているので
-		// 現れたのが2回目以降のplayer_idはより大きいrow_numでスコアが出ているとみなせる
-		if _, ok := scoredPlayerSet[ps.PlayerID]; ok {
-			continue
-		}
-		scoredPlayerSet[ps.PlayerID] = struct{}{}
-		p, err := retrievePlayer(ctx, tenantDB, ps.PlayerID)
-		if err != nil {
-			return fmt.Errorf("error retrievePlayer: %w", err)
-		}
+		/*
+			// player_scoreが同一player_id内ではrow_numの降順でソートされているので
+			// 現れたのが2回目以降のplayer_idはより大きいrow_numでスコアが出ているとみなせる
+			if _, ok := scoredPlayerSet[ps.PlayerID]; ok {
+				continue
+			}
+			scoredPlayerSet[ps.PlayerID] = struct{}{}
+			p, err := retrievePlayer(ctx, tenantDB, ps.PlayerID)
+			if err != nil {
+				return fmt.Errorf("error retrievePlayer: %w", err)
+			}*/
 		ranks = append(ranks, CompetitionRank{
 			Score:             ps.Score,
-			PlayerID:          p.ID,
-			PlayerDisplayName: p.DisplayName,
+			PlayerID:          ps.PlayerID,
+			PlayerDisplayName: ps.DisplayName,
 			RowNum:            ps.RowNum,
 		})
 	}
