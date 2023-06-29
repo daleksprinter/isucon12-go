@@ -48,8 +48,9 @@ var (
 
 	adminDB *sqlx.DB
 
-	sqliteDriverName     = "sqlite3"
-	playersByCompetition = PlayersByCompetition{}
+	sqliteDriverName      = "sqlite3"
+	playersByCompetition  = PlayersByCompetition{}
+	visitorsByCompetition = VisitersByCompetition{}
 )
 
 // 環境変数を取得する、なければデフォルト値を返す
@@ -546,11 +547,6 @@ type VisitHistoryRow struct {
 	UpdatedAt     int64  `db:"updated_at"`
 }
 
-type VisitHistorySummaryRow struct {
-	PlayerID     string `db:"player_id"`
-	MinCreatedAt int64  `db:"min_created_at"`
-}
-
 type PlayerWithCompetition struct {
 	PlayerID      string `db:"player_id"`
 	CompetitionID string `db:"competition_id"`
@@ -564,23 +560,10 @@ func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID i
 	}
 
 	// ランキングにアクセスした参加者のIDを取得する
-	vhs := []VisitHistorySummaryRow{}
-	if err := adminDB.SelectContext(
-		ctx,
-		&vhs,
-		"SELECT player_id, MIN(created_at) AS min_created_at FROM visit_history WHERE tenant_id = ? AND competition_id = ? GROUP BY player_id",
-		tenantID,
-		comp.ID,
-	); err != nil && err != sql.ErrNoRows {
-		return nil, fmt.Errorf("error Select visit_history: tenantID=%d, competitionID=%s, %w", tenantID, comp.ID, err)
-	}
 	billingMap := map[string]string{}
-	for _, vh := range vhs {
-		// competition.finished_atよりもあとの場合は、終了後に訪問したとみなして大会開催内アクセス済みとみなさない
-		if comp.FinishedAt.Valid && comp.FinishedAt.Int64 < vh.MinCreatedAt {
-			continue
-		}
-		billingMap[vh.PlayerID] = "visitor"
+	visitors := visitorsByCompetition.GetVisitorsByCompetition(competitonID)
+	for _, p := range visitors {
+		billingMap[p] = "visitor"
 	}
 
 	// player_scoreを読んでいるときに更新が走ると不整合が起こるのでロックを取得する
@@ -1369,6 +1352,7 @@ func competitionRankingHandler(c echo.Context) error {
 			v.playerID, tenant.ID, competitionID, now, now, err,
 		)
 	}
+	visitorsByCompetition.AddVisotor(*competition, *v)
 
 	var rankAfter int64
 	rankAfterStr := c.QueryParam("rank_after")
@@ -1627,6 +1611,7 @@ func initializeHandler(c echo.Context) error {
 		return e
 	}
 	playersByCompetition.Initialize(t)
+	visitorsByCompetition.Initialize(t)
 
 	res := InitializeHandlerResult{
 		Lang: "go",
