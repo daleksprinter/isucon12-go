@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-sql-driver/mysql"
@@ -49,6 +50,9 @@ var (
 	adminDB *sqlx.DB
 
 	sqliteDriverName = "sqlite3"
+
+	players map[string]map[string]bool
+	mu      sync.Mutex
 )
 
 // 環境変数を取得する、なければデフォルト値を返す
@@ -556,6 +560,34 @@ type VisitHistorySummaryRow struct {
 	MinCreatedAt int64  `db:"min_created_at"`
 }
 
+type PlayerWithCompetition struct {
+	PlayerID      string `db:"player_id"`
+	CompetitionID string `db:"competition_id"`
+}
+
+func getPlayersByCompetitions(tenantDB dbOrTx, ctx context.Context) ([]PlayerWithCompetition, error) {
+	scoredPlayerIDs := []PlayerWithCompetition{}
+	if err := tenantDB.SelectContext(
+		ctx,
+		&scoredPlayerIDs,
+		"SELECT competition_id, player_id FROM player_score group by competition_id, player_id",
+	); err != nil && err != sql.ErrNoRows {
+		return nil, fmt.Errorf("error Select count player_score:  %w", err)
+	}
+	return scoredPlayerIDs, nil
+}
+
+func PlayersByCompetitionsToMap(data []PlayerWithCompetition) map[string]map[string]bool {
+	ret := map[string]map[string]bool{}
+	for _, v := range data {
+		if _, ok := ret[v.CompetitionID]; !ok {
+			ret[v.CompetitionID] = map[string]bool{}
+		}
+		ret[v.CompetitionID][v.PlayerID] = true
+	}
+	return ret
+}
+
 // 大会ごとの課金レポートを計算する
 func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID int64, competitonID string) (*BillingReport, error) {
 	comp, err := retrieveCompetition(ctx, tenantDB, competitonID)
@@ -592,14 +624,25 @@ func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID i
 
 	// スコアを登録した参加者のIDを取得する
 	scoredPlayerIDs := []string{}
-	if err := tenantDB.SelectContext(
-		ctx,
-		&scoredPlayerIDs,
-		"SELECT DISTINCT(player_id) FROM player_score WHERE tenant_id = ? AND competition_id = ?",
-		tenantID, comp.ID,
-	); err != nil && err != sql.ErrNoRows {
-		return nil, fmt.Errorf("error Select count player_score: tenantID=%d, competitionID=%s, %w", tenantID, competitonID, err)
+	/*
+		if err := tenantDB.SelectContext(
+			ctx,
+			&scoredPlayerIDs,
+			"SELECT DISTINCT(player_id) FROM player_score WHERE tenant_id = ? AND competition_id = ?",
+			tenantID, comp.ID,
+		); err != nil && err != sql.ErrNoRows {
+			return nil, fmt.Errorf("error Select count player_score: tenantID=%d, competitionID=%s, %w", tenantID, competitonID, err)
+		}*/
+
+	mu.Lock()
+	p, ok := players[competitonID]
+	if ok {
+		for k, _ := range p {
+			scoredPlayerIDs = append(scoredPlayerIDs, k)
+		}
 	}
+
+	mu.Unlock()
 	for _, pid := range scoredPlayerIDs {
 		// スコアが登録されている参加者
 		billingMap[pid] = "player"
@@ -1123,12 +1166,20 @@ func competitionScoreHandler(c echo.Context) error {
 		"INSERT INTO player_score (id, tenant_id, player_id, competition_id, score, row_num, created_at, updated_at) VALUES (:id, :tenant_id, :player_id, :competition_id, :score, :row_num, :created_at, :updated_at)",
 		playerScoreRows,
 	); err != nil {
+
 		return fmt.Errorf(
 			"error Insert player_score: %w",
 			err,
 		)
-
 	}
+	mu.Lock()
+	for _, v := range playerScoreRows {
+		if _, ok := players[v.CompetitionID]; !ok {
+			players[v.CompetitionID] = map[string]bool{}
+		}
+		players[v.CompetitionID][v.PlayerID] = true
+	}
+	mu.Unlock()
 
 	return c.JSON(http.StatusOK, SuccessResult{
 		Status: true,
@@ -1655,6 +1706,18 @@ func initializeHandler(c echo.Context) error {
 	if err != nil {
 		return fmt.Errorf("error exec.Command: %s %e", string(out), err)
 	}
+
+	//initialize players
+	t, e := connectAdminDB()
+	if e != nil {
+		return e
+	}
+	p, err := getPlayersByCompetitions(t, context.Background())
+	if err != nil {
+		return err
+	}
+	players = PlayersByCompetitionsToMap(p)
+
 	res := InitializeHandlerResult{
 		Lang: "go",
 	}
