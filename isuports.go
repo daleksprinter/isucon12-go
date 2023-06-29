@@ -81,12 +81,6 @@ func tenantDBPath(id int64) string {
 
 // テナントDBに接続する
 func connectToTenantDB(id int64) (*sqlx.DB, error) {
-	/*p := tenantDBPath(id)
-	db, err := sqlx.Open(sqliteDriverName, fmt.Sprintf("file:%s?mode=rw", p))
-	if err != nil {
-		return nil, fmt.Errorf("failed to open tenant DB: %w", err)
-	}
-	return db, nil*/
 	return adminDB, nil
 }
 
@@ -1273,22 +1267,6 @@ func playerHandler(c echo.Context) error {
 	}
 	pss := make([]PlayerScoreRow, 0, len(cs))
 	for _, c := range cs {
-		/*ps := PlayerScoreRow{}
-		if err := tenantDB.GetContext(
-			ctx,
-			&ps,
-			// 最後にCSVに登場したスコアを採用する = row_numが一番大きいもの
-			"SELECT * FROM player_score WHERE tenant_id = ? AND competition_id = ? AND player_id = ? ORDER BY row_num DESC LIMIT 1",
-			v.tenantID,
-			c.ID,
-			p.ID,
-		); err != nil {
-			// 行がない = スコアが記録されてない
-			if errors.Is(err, sql.ErrNoRows) {
-				continue
-			}
-			return fmt.Errorf("error Select player_score: tenantID=%d, competitionID=%s, playerID=%s, %w", v.tenantID, c.ID, p.ID, err)
-		}*/
 		score, ok := mxscores[key{
 			tenant_id:      v.tenantID,
 			player_id:      p.ID,
@@ -1419,17 +1397,6 @@ func competitionRankingHandler(c echo.Context) error {
 	ranks := make([]CompetitionRank, 0, len(pss))
 	//scoredPlayerSet := make(map[string]struct{}, len(pss))
 	for _, ps := range pss {
-		/*
-			// player_scoreが同一player_id内ではrow_numの降順でソートされているので
-			// 現れたのが2回目以降のplayer_idはより大きいrow_numでスコアが出ているとみなせる
-			if _, ok := scoredPlayerSet[ps.PlayerID]; ok {
-				continue
-			}
-			scoredPlayerSet[ps.PlayerID] = struct{}{}
-			p, err := retrievePlayer(ctx, tenantDB, ps.PlayerID)
-			if err != nil {
-				return fmt.Errorf("error retrievePlayer: %w", err)
-			}*/
 		ranks = append(ranks, CompetitionRank{
 			Score:             ps.Score,
 			PlayerID:          ps.PlayerID,
