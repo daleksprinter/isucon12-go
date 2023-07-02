@@ -3,11 +3,13 @@ package isuports
 import (
 	"context"
 	"fmt"
+	"sync"
 )
 
 type PlayerScoreCache struct {
 	psc        map[string][]PlayerScoreRowWithPlayer
 	updatedmap map[string]bool
+	mu         sync.Mutex
 }
 
 func (d *PlayerScoreCache) Initialize(tenantDB dbOrTx) error {
@@ -28,7 +30,7 @@ func (d *PlayerScoreCache) Initialize(tenantDB dbOrTx) error {
 		if err != nil {
 			return err
 		}
-		d.Update(c.ID, pss)
+		d.update(c.ID, pss)
 	}
 	return nil
 }
@@ -42,6 +44,8 @@ func (d *PlayerScoreCache) IsCached(competitionid string) bool {
 }
 
 func (d *PlayerScoreCache) Get(tenantDB dbOrTx, ctx context.Context, tenantID int64, competitionID string) (pss []PlayerScoreRowWithPlayer, err error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	if playerScoreCache.IsCached(competitionID) {
 		pss, _ = playerScoreCache.psc[competitionID]
 	} else {
@@ -49,16 +53,18 @@ func (d *PlayerScoreCache) Get(tenantDB dbOrTx, ctx context.Context, tenantID in
 		if err != nil {
 			return nil, fmt.Errorf("error get player score%w", err)
 		}
-		playerScoreCache.Update(competitionID, pss)
+		playerScoreCache.update(competitionID, pss)
 	}
 	return pss, nil
 }
 
-func (d *PlayerScoreCache) Update(competitionId string, data []PlayerScoreRowWithPlayer) {
+func (d *PlayerScoreCache) update(competitionId string, data []PlayerScoreRowWithPlayer) {
 	d.psc[competitionId] = data
 	d.updatedmap[competitionId] = false
 }
 
 func (d *PlayerScoreCache) Updated(competitionid string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
 	d.updatedmap[competitionid] = true
 }
