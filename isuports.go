@@ -48,8 +48,9 @@ var (
 
 	adminDB *sqlx.DB
 
-	sqliteDriverName     = "sqlite3"
-	playersByCompetition = PlayersByCompetition{}
+	sqliteDriverName      = "sqlite3"
+	playersByCompetition  = PlayersByCompetition{}
+	visitorsByCompetition = VisitersByCompetition{}
 )
 
 // 環境変数を取得する、なければデフォルト値を返す
@@ -81,12 +82,6 @@ func tenantDBPath(id int64) string {
 
 // テナントDBに接続する
 func connectToTenantDB(id int64) (*sqlx.DB, error) {
-	/*p := tenantDBPath(id)
-	db, err := sqlx.Open(sqliteDriverName, fmt.Sprintf("file:%s?mode=rw", p))
-	if err != nil {
-		return nil, fmt.Errorf("failed to open tenant DB: %w", err)
-	}
-	return db, nil*/
 	return adminDB, nil
 }
 
@@ -552,11 +547,6 @@ type VisitHistoryRow struct {
 	UpdatedAt     int64  `db:"updated_at"`
 }
 
-type VisitHistorySummaryRow struct {
-	PlayerID     string `db:"player_id"`
-	MinCreatedAt int64  `db:"min_created_at"`
-}
-
 type PlayerWithCompetition struct {
 	PlayerID      string `db:"player_id"`
 	CompetitionID string `db:"competition_id"`
@@ -570,23 +560,10 @@ func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID i
 	}
 
 	// ランキングにアクセスした参加者のIDを取得する
-	vhs := []VisitHistorySummaryRow{}
-	if err := adminDB.SelectContext(
-		ctx,
-		&vhs,
-		"SELECT player_id, MIN(created_at) AS min_created_at FROM visit_history WHERE tenant_id = ? AND competition_id = ? GROUP BY player_id",
-		tenantID,
-		comp.ID,
-	); err != nil && err != sql.ErrNoRows {
-		return nil, fmt.Errorf("error Select visit_history: tenantID=%d, competitionID=%s, %w", tenantID, comp.ID, err)
-	}
 	billingMap := map[string]string{}
-	for _, vh := range vhs {
-		// competition.finished_atよりもあとの場合は、終了後に訪問したとみなして大会開催内アクセス済みとみなさない
-		if comp.FinishedAt.Valid && comp.FinishedAt.Int64 < vh.MinCreatedAt {
-			continue
-		}
-		billingMap[vh.PlayerID] = "visitor"
+	visitors := visitorsByCompetition.GetVisitorsByCompetition(competitonID)
+	for _, p := range visitors {
+		billingMap[p] = "visitor"
 	}
 
 	// player_scoreを読んでいるときに更新が走ると不整合が起こるのでロックを取得する
@@ -1273,22 +1250,6 @@ func playerHandler(c echo.Context) error {
 	}
 	pss := make([]PlayerScoreRow, 0, len(cs))
 	for _, c := range cs {
-		/*ps := PlayerScoreRow{}
-		if err := tenantDB.GetContext(
-			ctx,
-			&ps,
-			// 最後にCSVに登場したスコアを採用する = row_numが一番大きいもの
-			"SELECT * FROM player_score WHERE tenant_id = ? AND competition_id = ? AND player_id = ? ORDER BY row_num DESC LIMIT 1",
-			v.tenantID,
-			c.ID,
-			p.ID,
-		); err != nil {
-			// 行がない = スコアが記録されてない
-			if errors.Is(err, sql.ErrNoRows) {
-				continue
-			}
-			return fmt.Errorf("error Select player_score: tenantID=%d, competitionID=%s, playerID=%s, %w", v.tenantID, c.ID, p.ID, err)
-		}*/
 		score, ok := mxscores[key{
 			tenant_id:      v.tenantID,
 			player_id:      p.ID,
@@ -1391,6 +1352,7 @@ func competitionRankingHandler(c echo.Context) error {
 			v.playerID, tenant.ID, competitionID, now, now, err,
 		)
 	}
+	visitorsByCompetition.AddVisotor(*competition, *v)
 
 	var rankAfter int64
 	rankAfterStr := c.QueryParam("rank_after")
@@ -1419,17 +1381,6 @@ func competitionRankingHandler(c echo.Context) error {
 	ranks := make([]CompetitionRank, 0, len(pss))
 	//scoredPlayerSet := make(map[string]struct{}, len(pss))
 	for _, ps := range pss {
-		/*
-			// player_scoreが同一player_id内ではrow_numの降順でソートされているので
-			// 現れたのが2回目以降のplayer_idはより大きいrow_numでスコアが出ているとみなせる
-			if _, ok := scoredPlayerSet[ps.PlayerID]; ok {
-				continue
-			}
-			scoredPlayerSet[ps.PlayerID] = struct{}{}
-			p, err := retrievePlayer(ctx, tenantDB, ps.PlayerID)
-			if err != nil {
-				return fmt.Errorf("error retrievePlayer: %w", err)
-			}*/
 		ranks = append(ranks, CompetitionRank{
 			Score:             ps.Score,
 			PlayerID:          ps.PlayerID,
@@ -1660,6 +1611,7 @@ func initializeHandler(c echo.Context) error {
 		return e
 	}
 	playersByCompetition.Initialize(t)
+	visitorsByCompetition.Initialize(t)
 
 	res := InitializeHandlerResult{
 		Lang: "go",
