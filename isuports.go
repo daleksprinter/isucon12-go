@@ -1367,24 +1367,10 @@ func competitionRankingHandler(c echo.Context) error {
 		return fmt.Errorf("error flockByTenantID: %w", err)
 	}
 	defer fl.Close()
-	pss := []PlayerScoreRowWithPlayer{}
 
-	if playerScoreCache.IsCached(competitionID) {
-		pss, _ = playerScoreCache.psc[competitionID]
-	} else {
-		if err := tenantDB.SelectContext(
-			ctx,
-			&pss,
-			`SELECT ps.score, ps.player_id, ps.row_num, p.display_name 
-					FROM player_score_new ps join player p on ps.player_id = p.id 
-					WHERE ps.tenant_id = ? AND ps.competition_id = ? 
-					`,
-			tenant.ID,
-			competitionID,
-		); err != nil {
-			return fmt.Errorf("error Select player_score: tenantID=%d, competitionID=%s, %w", tenant.ID, competitionID, err)
-		}
-		playerScoreCache.Update(competitionID, pss)
+	pss, err := playerScoreCache.Get(tenantDB, ctx, v.tenantID, competitionID)
+	if err != nil {
+		return fmt.Errorf("error get player score%w", err)
 	}
 
 	ranks := make([]CompetitionRank, 0, len(pss))
