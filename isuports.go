@@ -406,6 +406,7 @@ type PlayerScoreRow struct {
 	RowNum        int64  `db:"row_num"`
 	CreatedAt     int64  `db:"created_at"`
 	UpdatedAt     int64  `db:"updated_at"`
+	Title         string `db:"title"`
 }
 
 type PlayerScoreRowWithPlayer struct {
@@ -1187,7 +1188,7 @@ func playerHandler(c echo.Context) error {
 	}
 
 	maxscores := []PlayerScoreRow{}
-	q := `SELECT ps.* FROM player_score_new ps 
+	q := `SELECT ps.*, c.title FROM player_score_new ps 
     		INNER JOIN (
     			SELECT competition_id, player_id, tenant_id, MAX(row_num) rn 
     			FROM player_score_new playerID
@@ -1197,7 +1198,8 @@ func playerHandler(c echo.Context) error {
     		    ps.player_id = mx.player_id 
 				AND mx.rn = ps.row_num 
 				AND mx.competition_id = ps.competition_id 
-				AND mx.tenant_id = ps.tenant_id)`
+				AND mx.tenant_id = ps.tenant_id)
+			join competition c on c.id = ps.competition_id`
 	if err := tenantDB.SelectContext(ctx, &maxscores, q, p.ID, v.tenantID); err != nil {
 		return fmt.Errorf("error select max player score: %w", err)
 	}
@@ -1230,12 +1232,8 @@ func playerHandler(c echo.Context) error {
 
 	psds := make([]PlayerScoreDetail, 0, len(pss))
 	for _, ps := range pss {
-		comp, err := retrieveCompetition(ctx, tenantDB, ps.CompetitionID)
-		if err != nil {
-			return fmt.Errorf("error retrieveCompetition: %w", err)
-		}
 		psds = append(psds, PlayerScoreDetail{
-			CompetitionTitle: comp.Title,
+			CompetitionTitle: ps.Title,
 			Score:            ps.Score,
 		})
 	}
