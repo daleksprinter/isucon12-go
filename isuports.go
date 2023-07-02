@@ -1083,7 +1083,7 @@ func competitionScoreHandler(c echo.Context) error {
 
 	if _, err := tenantDB.ExecContext(
 		ctx,
-		"DELETE FROM player_score WHERE tenant_id = ? AND competition_id = ?",
+		"DELETE FROM player_score_new WHERE tenant_id = ? AND competition_id = ?",
 		v.tenantID,
 		competitionID,
 	); err != nil {
@@ -1091,7 +1091,7 @@ func competitionScoreHandler(c echo.Context) error {
 	}
 	if _, err := tenantDB.NamedExecContext(
 		ctx,
-		"INSERT INTO player_score (id, tenant_id, player_id, competition_id, score, row_num, created_at, updated_at) VALUES (:id, :tenant_id, :player_id, :competition_id, :score, :row_num, :created_at, :updated_at)",
+		"INSERT INTO player_score_new (id, tenant_id, player_id, competition_id, score, row_num, created_at, updated_at) VALUES (:id, :tenant_id, :player_id, :competition_id, :score, :row_num, :created_at, :updated_at)",
 		playerScoreRows,
 	); err != nil {
 
@@ -1219,10 +1219,10 @@ func playerHandler(c echo.Context) error {
 	}
 	defer fl.Close()
 	maxscores := []PlayerScoreRow{}
-	q := `select ps.* from player_score ps 
+	q := `select ps.* from player_score_new ps 
     		inner join (
     			select competition_id, player_id, tenant_id, MAX(row_num) rn 
-    			from player_score playerID
+    			from player_score_new playerID
     			where player_id = ? and tenant_id = ? 
     			group by competition_id, player_id, tenant_id) as mx 
     		on (
