@@ -54,6 +54,8 @@ var (
 	visitorsByCompetition         = VisitersByCompetition{}
 	auto_increment_id      int64  = 0
 	auto_increment_id_base string = strconv.FormatInt(time.Now().Unix(), 10)
+
+	playerScoreCache = PlayerScoreCache{}
 )
 
 // 環境変数を取得する、なければデフォルト値を返す
@@ -1087,6 +1089,7 @@ func competitionScoreHandler(c echo.Context) error {
 		)
 	}
 	playersByCompetition.AddPlayers(competitionID, playerScoreRows)
+	playerScoreCache.Updated(competitionID)
 
 	return c.JSON(http.StatusOK, SuccessResult{
 		Status: true,
@@ -1352,15 +1355,25 @@ func competitionRankingHandler(c echo.Context) error {
 	}
 	defer fl.Close()
 	pss := []PlayerScoreRowWithPlayer{}
-	if err := tenantDB.SelectContext(
-		ctx,
-		&pss,
-		"SELECT ps.*, p.display_name FROM player_score ps join player p on ps.player_id = p.id WHERE ps.tenant_id = ? AND ps.competition_id = ? ORDER BY ps.row_num DESC",
-		tenant.ID,
-		competitionID,
-	); err != nil {
-		return fmt.Errorf("error Select player_score: tenantID=%d, competitionID=%s, %w", tenant.ID, competitionID, err)
+
+	if playerScoreCache.IsCached(competitionID) {
+		pss, _ = playerScoreCache.psc[competitionID]
+	} else {
+		if err := tenantDB.SelectContext(
+			ctx,
+			&pss,
+			`SELECT ps.score, ps.player_id, ps.row_num, p.display_name 
+					FROM player_score ps join player p on ps.player_id = p.id 
+					WHERE ps.tenant_id = ? AND ps.competition_id = ? 
+					`,
+			tenant.ID,
+			competitionID,
+		); err != nil {
+			return fmt.Errorf("error Select player_score: tenantID=%d, competitionID=%s, %w", tenant.ID, competitionID, err)
+		}
+		playerScoreCache.Update(competitionID, pss)
 	}
+
 	ranks := make([]CompetitionRank, 0, len(pss))
 	//scoredPlayerSet := make(map[string]struct{}, len(pss))
 	for _, ps := range pss {
@@ -1596,6 +1609,7 @@ func initializeHandler(c echo.Context) error {
 	playersByCompetition.Initialize(t)
 	visitorsByCompetition.Initialize(t)
 
+	playerScoreCache.Initialize(t)
 	res := InitializeHandlerResult{
 		Lang: "go",
 	}
