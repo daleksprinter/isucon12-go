@@ -24,18 +24,9 @@ func (d *PlayerScoreCache) Initialize(tenantDB dbOrTx) error {
 		return fmt.Errorf("error Select player_score: %w", err)
 	}
 	for _, c := range competitions {
-		pss := []PlayerScoreRowWithPlayer{}
-		if err := tenantDB.SelectContext(
-			ctx,
-			&pss,
-			`SELECT ps.score, ps.player_id, ps.row_num, p.display_name 
-					FROM player_score_new ps join player p on ps.player_id = p.id 
-					WHERE ps.tenant_id = ? and ps.competition_id = ? 
-					`,
-			c.TenantID,
-			c.ID,
-		); err != nil {
-			return fmt.Errorf("error Select player_score:competitionID=%s, %w", c.ID, err)
+		pss, err := GetPlayerScore(tenantDB, ctx, c.TenantID, c.ID)
+		if err != nil {
+			return err
 		}
 		d.Update(c.ID, pss)
 	}
@@ -48,6 +39,19 @@ func (d *PlayerScoreCache) IsCached(competitionid string) bool {
 		return false
 	}
 	return !ret
+}
+
+func (d *PlayerScoreCache) Get(tenantDB dbOrTx, ctx context.Context, tenantID int64, competitionID string) (pss []PlayerScoreRowWithPlayer, err error) {
+	if playerScoreCache.IsCached(competitionID) {
+		pss, _ = playerScoreCache.psc[competitionID]
+	} else {
+		pss, err = GetPlayerScore(tenantDB, ctx, tenantID, competitionID)
+		if err != nil {
+			return nil, fmt.Errorf("error get player score%w", err)
+		}
+		playerScoreCache.Update(competitionID, pss)
+	}
+	return pss, nil
 }
 
 func (d *PlayerScoreCache) Update(competitionId string, data []PlayerScoreRowWithPlayer) {
