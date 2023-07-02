@@ -1034,7 +1034,7 @@ func competitionScoreHandler(c echo.Context) error {
 		players = append(players, k)
 	}
 
-	query := "select id from player where id in (?)"
+	query := "SELECT id FROM player WHERE id IN (?)"
 	query, params, _ := sqlx.In(query, players)
 
 	playerids := []PlayerRow{}
@@ -1187,20 +1187,21 @@ func playerHandler(c echo.Context) error {
 	}
 
 	maxscores := []PlayerScoreRow{}
-	q := `select ps.* from player_score_new ps 
-    		inner join (
-    			select competition_id, player_id, tenant_id, MAX(row_num) rn 
-    			from player_score_new playerID
-    			where player_id = ? and tenant_id = ? 
-    			group by competition_id, player_id, tenant_id) as mx 
-    		on (
+	q := `SELECT ps.* FROM player_score_new ps 
+    		INNER JOIN (
+    			SELECT competition_id, player_id, tenant_id, MAX(row_num) rn 
+    			FROM player_score_new playerID
+    			WHERE player_id = ? AND tenant_id = ? 
+    			GROUP BY competition_id, player_id, tenant_id) AS mx 
+    		ON (
     		    ps.player_id = mx.player_id 
-				and mx.rn = ps.row_num 
-				and mx.competition_id = ps.competition_id 
-				and mx.tenant_id = ps.tenant_id)`
+				AND mx.rn = ps.row_num 
+				AND mx.competition_id = ps.competition_id 
+				AND mx.tenant_id = ps.tenant_id)`
 	if err := tenantDB.SelectContext(ctx, &maxscores, q, p.ID, v.tenantID); err != nil {
 		return fmt.Errorf("error select max player score: %w", err)
 	}
+
 	type key struct {
 		tenant_id      int64
 		player_id      string
