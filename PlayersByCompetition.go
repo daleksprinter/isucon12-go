@@ -26,7 +26,7 @@ func (d *PlayersByCompetition) getPlayersByCompetitions(tenantDB dbOrTx, ctx con
 	if err := tenantDB.SelectContext(
 		ctx,
 		&scoredPlayerIDs,
-		"SELECT competition_id, player_id FROM player_score group by competition_id, player_id",
+		"SELECT competition_id, player_id FROM player_score_new group by competition_id, player_id",
 	); err != nil && err != sql.ErrNoRows {
 		return nil, fmt.Errorf("error Select count player_score:  %w", err)
 	}
