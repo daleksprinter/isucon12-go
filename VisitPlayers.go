@@ -28,7 +28,7 @@ type VisitHistorySummaryRow struct {
 
 func (d *VisitersByCompetition) getVisitorsByCompetitions(t dbOrTx, ctx context.Context) ([]VisitHistorySummaryRow, error) {
 	vhs := []VisitHistorySummaryRow{}
-	if err := adminDB.SelectContext(
+	if err := t.SelectContext(
 		ctx,
 		&vhs,
 		`SELECT player_id, competition_id 
