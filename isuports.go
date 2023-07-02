@@ -1376,7 +1376,7 @@ func competitionRankingHandler(c echo.Context) error {
 			ctx,
 			&pss,
 			`SELECT ps.score, ps.player_id, ps.row_num, p.display_name 
-					FROM player_score ps join player p on ps.player_id = p.id 
+					FROM player_score_new ps join player p on ps.player_id = p.id 
 					WHERE ps.tenant_id = ? AND ps.competition_id = ? 
 					`,
 			tenant.ID,
