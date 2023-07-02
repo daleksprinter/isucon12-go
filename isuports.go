@@ -55,6 +55,9 @@ var (
 	auto_increment_id_base string = strconv.FormatInt(time.Now().Unix(), 10)
 
 	playerScoreCache = PlayerScoreCache{}
+	billings         = billingCache{
+		memo: make(map[string]Counts),
+	}
 )
 
 // 環境変数を取得する、なければデフォルト値を返す
@@ -539,29 +542,10 @@ func billingReportByCompetition(ctx context.Context, tenantDB dbOrTx, tenantID i
 
 	}
 
-	// ランキングにアクセスした参加者のIDを取得する
-	billingMap := map[string]string{}
-	visitors := visitorsByCompetition.GetVisitorsByCompetition(competitonID)
-	for _, p := range visitors {
-		billingMap[p] = "visitor"
-	}
+	c := billings.Get(competitonID)
+	playerCount := c.Players
+	visitorCount := c.Visitors
 
-	// スコアを登録した参加者のIDを取得する
-	for _, pid := range playersByCompetition.GetPlayersByCompetition(comp.ID) {
-		// スコアが登録されている参加者
-		billingMap[pid] = "player"
-	}
-
-	// 大会が終了している場合のみ請求金額が確定するので計算する
-	var playerCount, visitorCount int64
-	for _, category := range billingMap {
-		switch category {
-		case "player":
-			playerCount++
-		case "visitor":
-			visitorCount++
-		}
-	}
 	return &BillingReport{
 		CompetitionID:     comp.ID,
 		CompetitionTitle:  comp.Title,
@@ -1580,6 +1564,7 @@ func initializeHandler(c echo.Context) error {
 	visitorsByCompetition.Initialize(t)
 
 	playerScoreCache.Initialize(t)
+	billings.Initialize()
 	res := InitializeHandlerResult{
 		Lang: "go",
 	}
